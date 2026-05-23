@@ -6,34 +6,19 @@
     <title>Monad Snake 🐍</title>
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background: #0a0a0a;
-            font-family: 'Courier New', monospace;
-            color: #00ff9f;
+            margin: 0; padding: 0;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; background: #0a0a0a;
+            font-family: 'Courier New', monospace; color: #00ff9f;
             flex-direction: column;
         }
-        h1 { margin-bottom: 10px; text-shadow: 0 0 10px #00ff9f; }
-        canvas {
-            border: 4px solid #00ff9f;
-            background: #111;
-            image-rendering: pixelated;
-        }
+        h1 { text-shadow: 0 0 10px #00ff9f; }
+        canvas { border: 4px solid #00ff9f; background: #111; }
         button {
-            margin-top: 15px;
-            padding: 14px 28px;
-            background: #00ff9f;
-            color: black;
-            border: none;
-            font-weight: bold;
-            cursor: pointer;
-            font-size: 17px;
+            margin: 15px; padding: 14px 28px; background: #00ff9f; color: black;
+            border: none; font-weight: bold; font-size: 17px; cursor: pointer;
         }
-        #status { margin-top: 15px; font-size: 15px; color: #ffaa00; max-width: 600px; text-align: center; }
+        #status { margin-top: 20px; padding: 15px; background: #1a1a1a; max-width: 700px; text-align: left; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -42,7 +27,6 @@
         <canvas id="game" width="600" height="600"></canvas>
         <div id="overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(10,10,10,0.95);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100;">
             <h2>连接钱包才能开始游戏</h2>
-            <p>需连接 Monad 主网 EVM 钱包</p>
             <button onclick="connectWallet()">连接 Monad 主网钱包</button>
         </div>
     </div>
@@ -51,60 +35,35 @@
 
     <script>
         const overlay = document.getElementById('overlay');
-        const status = document.getElementById('status');
-
-        const MONAD_CHAIN_ID = 143;
-
-        let isGameUnlocked = false;
+        const statusDiv = document.getElementById('status');
 
         async function connectWallet() {
-            status.innerHTML = "正在连接...";
+            statusDiv.innerHTML = "<strong>正在检测...</strong>";
 
             if (typeof window.ethereum === 'undefined') {
-                status.innerHTML = `❌ 未检测到钱包<br>
-                请安装 <b>MetaMask</b> 或 <b>Rabby</b> 浏览器插件后重试`;
+                statusDiv.innerHTML = "❌ 未检测到任何 EVM 钱包<br>请安装 MetaMask 或 Rabby";
                 return;
             }
 
             try {
-                status.innerHTML = "请求账户中...";
-                const accounts = await window.ethereum.request({ 
-                    method: 'eth_requestAccounts' 
+                statusDiv.innerHTML = "✅ 检测到钱包，正在请求连接...";
+
+                const accounts = await window.ethereum.request({
+                    method: 'eth_requestAccounts'
                 });
-                
-                const userAddress = accounts[0];
-                status.innerHTML = `✅ 账户已连接: ${userAddress.slice(0,6)}...${userAddress.slice(-4)}<br>正在检查网络...`;
 
-                // 检查网络
-                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
-                const currentChainId = parseInt(chainIdHex, 16);
-
-                if (currentChainId !== MONAD_CHAIN_ID) {
-                    status.innerHTML = "正在切换到 Monad 主网...";
-                    try {
-                        await window.ethereum.request({
-                            method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: '0x8f' }]
-                        });
-                    } catch (switchError) {
-                        status.innerHTML = "正在添加 Monad 主网...";
-                        await window.ethereum.request({
-                            method: 'wallet_addEthereumChain',
-                            params: [{
-                                chainId: '0x8f',
-                                chainName: 'Monad Mainnet',
-                                nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
-                                rpcUrls: ['https://rpc.monad.xyz'],
-                                blockExplorerUrls: ['https://monadvision.com']
-                            }]
-                        });
-                    }
+                if (!accounts || accounts.length === 0) {
+                    throw new Error("钱包返回空账户");
                 }
 
-                // 成功解锁
-                isGameUnlocked = true;
+                const address = accounts[0];
+                statusDiv.innerHTML += `<br>✅ 账户已连接: ${address.slice(0,6)}...${address.slice(-4)}`;
+
+                // 切换网络
+                await switchToMonad();
+                
                 overlay.style.display = 'none';
-                status.innerHTML = `✅ 已成功连接 Monad 主网！<br>地址: ${userAddress.slice(0,6)}...${userAddress.slice(-4)}<br>现在可以开始玩游戏了`;
+                statusDiv.innerHTML += "<br><br>🎉 连接成功！游戏已解锁";
 
                 resetGame();
                 draw();
@@ -112,77 +71,78 @@
 
             } catch (error) {
                 console.error(error);
-                status.innerHTML = `❌ 连接失败<br><small>${error.message || error}</small><br><br>常见解决方法：<br>
-                1. 刷新页面后重试<br>
-                2. 确保钱包已解锁<br>
-                3. 手动在钱包中切换到 Monad 主网`;
+                let msg = error.message || error.toString();
+                
+                if (msg.includes("User rejected") || msg.includes("4001")) {
+                    msg = "用户拒绝了连接请求";
+                } else if (msg.includes("Not Connected")) {
+                    msg = "钱包未连接或处于锁定状态";
+                }
+
+                statusDiv.innerHTML = `❌ 连接失败<br><strong>${msg}</strong><br><br>
+                解决建议：<br>
+                1. 确保钱包已解锁（输入密码）<br>
+                2. 刷新页面后重试<br>
+                3. 只开启一个钱包插件（MetaMask 或 Rabby）<br>
+                4. 在钱包中手动切换到 Monad 主网`;
             }
         }
 
-        // ==================== 游戏代码（保持不变） ====================
+        async function switchToMonad() {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: '0x8f' }]
+                });
+            } catch (e) {
+                await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: '0x8f',
+                        chainName: 'Monad Mainnet',
+                        nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+                        rpcUrls: ['https://rpc.monad.xyz'],
+                        blockExplorerUrls: ['https://monadvision.com']
+                    }]
+                });
+            }
+        }
+
+        // 游戏代码（简化版）
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-        const grid = 20;
-        let snake = [{x: 10, y: 10}];
-        let food = {};
-        let dx = 1, dy = 0;
-        let score = 0;
-        let gameInterval;
+        let snake = [{x:10,y:10}], food={}, dx=1, dy=0, score=0, gameInterval;
 
-        function placeFood() {
-            food = { x: Math.floor(Math.random() * (canvas.width/grid)), y: Math.floor(Math.random() * (canvas.height/grid)) };
-        }
-
+        function placeFood() { food = {x: Math.floor(Math.random()*30), y: Math.floor(Math.random()*30)}; }
         function draw() {
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            snake.forEach((s,i) => {
-                ctx.fillStyle = i===0 ? '#00ff9f' : '#00cc7a';
-                ctx.fillRect(s.x*grid, s.y*grid, grid-2, grid-2);
-            });
-            ctx.fillStyle = '#ff00aa';
-            ctx.fillRect(food.x*grid, food.y*grid, grid-2, grid-2);
+            ctx.fillStyle = '#111'; ctx.fillRect(0,0,600,600);
+            snake.forEach((s,i)=>{ ctx.fillStyle = i===0?'#00ff9f':'#00cc7a'; ctx.fillRect(s.x*20, s.y*20, 18,18); });
+            ctx.fillStyle = '#ff00aa'; ctx.fillRect(food.x*20, food.y*20, 18,18);
         }
-
         function update() {
-            if (!isGameUnlocked) return;
-            // ...（游戏逻辑保持不变，这里省略以节省篇幅，实际使用时用之前完整版本）
-            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
-            if (head.x < 0 || head.x >= canvas.width/grid || head.y < 0 || head.y >= canvas.height/grid || snake.some(s => s.x === head.x && s.y === head.y)) {
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+            if (head.x < 0 || head.x >= 30 || head.y < 0 || head.y >= 30 || snake.some(s=>s.x===head.x && s.y===head.y)) {
                 alert("游戏结束！分数: " + score);
                 resetGame();
                 return;
             }
             snake.unshift(head);
-            if (head.x === food.x && head.y === food.y) {
-                score += 10;
-                placeFood();
-            } else {
-                snake.pop();
-            }
+            if (head.x === food.x && head.y === food.y) { score += 10; placeFood(); } else { snake.pop(); }
             draw();
         }
-
         function resetGame() {
-            snake = [{x: 10, y: 10}];
-            dx = 1; dy = 0;
-            score = 0;
-            placeFood();
-            draw();
+            snake = [{x:10,y:10}]; dx=1; dy=0; score=0; placeFood(); draw();
         }
-
         document.addEventListener('keydown', e => {
-            if (!isGameUnlocked) return;
-            switch(e.key) {
-                case 'ArrowUp': if(dy !== 1){dx=0;dy=-1;} break;
-                case 'ArrowDown': if(dy !== -1){dx=0;dy=1;} break;
-                case 'ArrowLeft': if(dx !== 1){dx=-1;dy=0;} break;
-                case 'ArrowRight': if(dx !== -1){dx=1;dy=0;} break;
+            switch(e.key){
+                case 'ArrowUp': if(dy!==1){dx=0;dy=-1;} break;
+                case 'ArrowDown': if(dy!==-1){dx=0;dy=1;} break;
+                case 'ArrowLeft': if(dx!==1){dx=-1;dy=0;} break;
+                case 'ArrowRight': if(dx!==-1){dx=1;dy=0;} break;
             }
         });
 
-        placeFood();
-        draw();
+        placeFood(); draw();
     </script>
 </body>
 </html>
