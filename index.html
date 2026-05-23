@@ -34,40 +34,53 @@
         }
         button {
             margin-top: 15px;
-            padding: 12px 24px;
+            padding: 14px 28px;
             background: #00ff9f;
             color: black;
             border: none;
             font-weight: bold;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 17px;
         }
         button:hover {
             background: #00cc7a;
         }
         #wallet-info {
-            margin-top: 10px;
-            font-size: 14px;
+            margin-top: 12px;
+            font-size: 15px;
             color: #00cc7a;
+        }
+        #overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.92);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <h1>MONAD SNAKE 🐍</h1>
-    <canvas id="game" width="600" height="600"></canvas>
+    <div style="position: relative;">
+        <canvas id="game" width="600" height="600"></canvas>
+        <div id="overlay">
+            <h2>连接钱包才能开始游戏</h2>
+            <p style="margin: 15px 0;">需连接 Monad 主网 EVM 钱包</p>
+            <button onclick="connectWallet()">连接 Monad 主网钱包</button>
+        </div>
+    </div>
     
     <div class="info">
         <div>分数: <span id="score">0</span></div>
         <div>最高分: <span id="highscore">0</span></div>
     </div>
 
-    <button onclick="connectWallet()">连接 Monad 主网钱包</button>
     <div id="wallet-info"></div>
-    
-    <p style="margin-top:10px; font-size:14px; max-width:600px; text-align:center;">
-        ↑ ↓ ← → 方向键控制 | 吃粉色方块成长<br>
-        在 Monad 主网上玩 & 提交高分！
-    </p>
 
     <script>
         const canvas = document.getElementById('game');
@@ -75,9 +88,9 @@
         const scoreElement = document.getElementById('score');
         const highscoreElement = document.getElementById('highscore');
         const walletInfo = document.getElementById('wallet-info');
+        const overlay = document.getElementById('overlay');
 
-        const MONAD_CHAIN_ID = 143; // Monad 主网 Chain ID
-        const MONAD_RPC = "https://rpc.monad.xyz";
+        const MONAD_CHAIN_ID = 143; // Monad 主网
 
         const grid = 20;
         const rows = canvas.height / grid;
@@ -90,7 +103,7 @@
         let score = 0;
         let gameInterval;
         let highScore = localStorage.getItem('monadSnakeHighScore') || 0;
-        let userAddress = null;
+        let isGameUnlocked = false;
 
         highscoreElement.textContent = highScore;
 
@@ -112,6 +125,8 @@
         }
 
         function update() {
+            if (!isGameUnlocked) return;
+
             const head = { x: snake[0].x + dx, y: snake[0].y + dy };
 
             if (head.x < 0 || head.x >= cols || head.y < 0 || head.y >= rows || 
@@ -150,11 +165,11 @@
             scoreElement.textContent = score;
             placeFood();
             draw();
-            gameInterval = setInterval(update, 100);
         }
 
         // 键盘控制
         document.addEventListener('keydown', e => {
+            if (!isGameUnlocked) return;
             switch(e.key) {
                 case 'ArrowUp':    if (dy !== 1) { dx = 0; dy = -1; } break;
                 case 'ArrowDown':  if (dy !== -1) { dx = 0; dy = 1; } break;
@@ -163,66 +178,64 @@
             }
         });
 
-        // ==================== Monad 钱包交互 ====================
+        // ==================== 连接钱包并解锁游戏 ====================
         async function connectWallet() {
             if (typeof window.ethereum === 'undefined') {
-                alert('请先安装 MetaMask 或 Rabby 钱包');
+                alert('请先安装 MetaMask、Rabby 或其他 EVM 钱包');
                 return;
             }
 
             try {
                 const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                userAddress = accounts[0];
+                const userAddress = accounts[0];
 
-                // 检查当前网络
-                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                const currentChainId = parseInt(chainId, 16);
+                // 检查并切换网络
+                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+                const currentChainId = parseInt(chainIdHex, 16);
 
                 if (currentChainId !== MONAD_CHAIN_ID) {
-                    if (confirm('当前不在 Monad 主网，是否切换到 Monad 主网？')) {
-                        try {
-                            await window.ethereum.request({
-                                method: 'wallet_switchEthereumChain',
-                                params: [{ chainId: '0x8f' }]  // 143 的 16 进制
-                            });
-                        } catch (switchError) {
-                            // 如果网络不存在，添加 Monad 主网
-                            await window.ethereum.request({
-                                method: 'wallet_addEthereumChain',
-                                params: [{
-                                    chainId: '0x8f',
-                                    chainName: 'Monad Mainnet',
-                                    nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
-                                    rpcUrls: ['https://rpc.monad.xyz'],
-                                    blockExplorerUrls: ['https://monadvision.com']
-                                }]
-                            });
-                        }
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x8f' }]
+                        });
+                    } catch (switchError) {
+                        await window.ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0x8f',
+                                chainName: 'Monad Mainnet',
+                                nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+                                rpcUrls: ['https://rpc.monad.xyz'],
+                                blockExplorerUrls: ['https://monadvision.com']
+                            }]
+                        });
                     }
                 }
 
-                // 显示钱包信息
+                // 解锁游戏
+                isGameUnlocked = true;
+                overlay.style.display = 'none';
+                
                 walletInfo.innerHTML = `
                     ✅ 已连接 Monad 主网<br>
                     地址: ${userAddress.slice(0,6)}...${userAddress.slice(-4)}
                 `;
 
-                // 提交高分
-                if (score > 0 || highScore > 0) {
-                    const finalScore = Math.max(score, highScore);
-                    alert(`🎉 高分已准备提交到 Monad 主网！\n\n分数：${finalScore} 分\n地址：${userAddress.slice(0,6)}...${userAddress.slice(-4)}\n\n（当前为演示版，后续可升级为真实链上排行榜）`);
-                }
+                // 开始游戏
+                resetGame();
+                draw();
+                gameInterval = setInterval(update, 100);
 
             } catch (error) {
                 console.error(error);
-                alert('连接失败：' + error.message);
+                alert('连接失败，请重试：' + error.message);
             }
         }
 
-        // 初始化游戏
+        // 初始化
         placeFood();
         draw();
-        gameInterval = setInterval(update, 100);
     </script>
 </body>
 </html>
